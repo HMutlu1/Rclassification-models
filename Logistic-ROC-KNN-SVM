@@ -1,0 +1,328 @@
+## Logistic Regression
+
+# First Look at the Data
+df <- Default
+
+glimpse(df)
+profiling_num(df)
+plot_num(df)
+freq(df)
+
+
+# Train Test Separation
+
+train_indeks <- createDataPartition(df$default, p = 0.8, list = FALSE, times = 1)
+
+train <- df[train_indeks,]
+test <- df[-train_indeks,]
+
+train_x <- train %>% dplyr::select(-default)
+train_y <- train$default
+
+test_x <- test %>% dplyr::select(-default)
+test_y <- test$default
+
+training <- data.frame(train_x, default = train_y)
+
+
+
+
+# Classification with Linear Regression
+head(training$default)
+as.numeric(training$default)-1
+
+model_lm <- lm(as.numeric(training$default)-1 ~ balance, data = training)
+summary(model_lm)
+
+head(model_lm$fitted.values,10)
+summary(model_lm$fitted.values)
+
+plot(as.numeric(training$default)-1 ~ balance, data = training,
+     col = "darkorange",
+     pch = "I", 
+     ylim = c(-0.2, 1))
+
+abline(h = 0, lty = 3)
+abline(h = 1, lty = 3)
+abline(h = 0.5, lty = 2)
+abline(model_lm, lwd = 3, col = "dodgerblue")
+
+
+# Model
+model_glm <- glm(default~., 
+                 data = training, 
+                 family = "binomial")
+
+levels(training$default)[1]
+
+
+summary(model_glm)
+options(scipen = 9)
+
+
+# Predict
+head(predict(model_glm))
+
+head(predict(model_glm, type = "response"))
+
+ol <- predict(model_glm, type = "response")
+summary(ol)
+hist(ol)
+
+
+model_glm_pred <- ifelse(predict(model_glm, type = "response") > 0.5, "Yes","No")
+head(model_glm_pred)
+table(model_glm_pred)
+
+
+# Classification Error Detection and Complexity Matrix
+class_err <- function(gercek, tahmin) {
+  
+  mean(gercek != tahmin)
+  
+}
+
+#yanlis siniflandirma orani
+class_err(training$default, model_glm_pred)
+
+1-class_err(training$default, model_glm_pred)
+
+
+tb <- table(tahmin = model_glm_pred, 
+      gercek = training$default)
+
+km <- confusionMatrix(tb, positive = "Yes")
+
+c(km$overall["Accuracy"], km$byClass["Sensitivity"])
+
+
+## Visualization of Forecasts
+plot(as.numeric(training$default)-1 ~ balance, data = training,
+     col = "darkorange",
+     pch = "I", 
+     ylim = c(-0.2, 1))
+
+abline(h = 0, lty = 3)
+abline(h = 1, lty = 3)
+abline(h = 0.5, lty = 2)
+
+model_glm <- glm(default~ balance, 
+                 data = training, 
+                 family = "binomial")
+
+curve(predict(model_glm, data.frame(balance = x), type ="response"),
+              add = TRUE,
+              lwd = 3,
+              col = "dodgerblue")
+
+## ROC Curve
+model_glm <- glm(default~ ., 
+                 data = training, 
+                 family = "binomial")
+
+
+test_ol <- predict(model_glm, newdata = test_x, type = "response")
+
+a <- roc(test_y ~ test_ol, plot = TRUE, print.auc = TRUE)
+a$auc
+
+
+# Model Tuning
+ctrl <- trainControl(method = "cv", 
+                     number = 10, 
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE,
+                     savePredictions = TRUE)
+
+
+
+glm_tune <- train(train_x, 
+                  train_y, 
+                  method = "glm",
+                  trControl = ctrl)
+ 
+glm_tune
+
+head(glm_tune$pred$Yes)
+
+
+defaultSummary(data.frame(obs = test_y, 
+                          pred = predict(glm_tune, test_x)))
+
+#egitim
+confusionMatrix(data = predict(glm_tune, train_x),
+                reference = train_y, positive = "Yes")
+
+confusionMatrix(data = predict(glm_tune, test_x),
+                reference = test_y, positive = "Yes")
+
+
+roc(glm_tune$pred$obs,
+    glm_tune$pred$Yes,
+    levels = rev(levels(glm_tune$pred$obs)),
+    plot = TRUE, print.auc = TRUE)
+
+
+## KNN
+
+# Model
+train_indeks <- createDataPartition(df$default, p = 0.8, list = FALSE, times = 1)
+
+train <- df[train_indeks,]
+test <- df[-train_indeks,]
+
+train_x <- train %>% dplyr::select(-default)
+train_y <- train$default
+
+test_x <- test %>% dplyr::select(-default)
+test_y <- test$default
+
+training <- data.frame(train_x, default = train_y)
+
+
+
+knn_train <- train
+knn_train <- test
+
+
+knn_train$student <- as.numeric(knn_train$student)
+knn_test$student <- as.numeric(knn_test$student)
+
+knn_train <- knn_train %>% select(-default)
+knn_test <- knn_test %>% select(-default)
+
+
+knn_fit <- knn(train = knn_train, test = knn_test, cl = train_y, k = 3)
+
+summary(knn_fit)
+
+
+# Predict
+class_err <- function(gercek, tahmin) {
+  
+  mean(gercek != tahmin)
+  
+}
+
+class_err(test_y, knn_fit)
+
+knn_fit3 <- knn(train = knn_train, test = knn_test, cl = train_y, k = 3)
+knn_fit5 <- knn(train = knn_train, test = knn_test, cl = train_y, k = 5)
+knn_fit10 <- knn(train = knn_train, test = knn_test, cl = train_y, k = 10)
+
+class_err(test_y, knn_fit10)
+
+
+# Model Tuning
+ctrl <- trainControl(method = "cv", 
+                     number = 10, 
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE,
+                     savePredictions = TRUE)
+
+knn_grid <- data.frame(k = c(4*(0:5)+1, 20*(1:5)+1, 50*(2:9)+1))
+
+knn_tune <- train(knn_train, train_y,
+                  method = "knn",
+                  metric = "ROC",
+                  preProc = c("center", "scale"),
+                  trControl = ctrl,
+                  tuneGrid = knn_grid)
+
+plot(knn_tune)
+ 
+knn_tune$bestTune
+
+confusionMatrix(predict(knn_tune, knn_test), knn_test, positive = "Yes")
+
+
+
+## Linear SVM
+
+
+# DataSet
+set.seed(10111)
+x <- matrix(rnorm(40), 20, 2)
+y <- rep(c(-1,1), c(10, 10))
+x[y == 1,] <- x[y == 1, ] + 1
+plot(x , col = y + 3, pch = 19)
+df <- data.frame(x, y = as.factor(y))
+
+
+# Model
+svm_fit <- svm(y ~ ., data = df, kernel = "linear", cost = 10, scale = FALSE)
+
+svm_fit
+print(svm_fit)
+summary(svm_fit)
+
+plot(svm_fit, df)
+
+
+
+# Visualization of Boundaries, Support Points and Coefficients
+range(c(1,3,4,5,6,7,99))
+
+apply(df, 2, range)
+
+a <- seq(from = apply(df, 2, range)[1,1], to = apply(df, 2, range)[2,1], length = 5)
+
+b <- seq(from = apply(df, 2, range)[1,2], to = apply(df, 2, range)[2,2], length = 5)
+
+expand.grid(a,b)
+
+make_grid <- function(x, n = 75) {
+  g_range = apply(x, 2, range)
+  x1 = seq(from = g_range[1,1], to = g_range[2,1], length = n)
+  x2 = seq(from = g_range[1,2], to = g_range[2,2], length = n)
+  expand.grid(X1 = x1, X2 = x2)
+}
+
+x_grid <- make_grid(x)
+x_grid[1:10,]
+
+
+# Adding Boundaries, Support Points, and Coefficients
+y_grid <- predict(svm_fit, x_grid)
+
+plot(x_grid,
+     col = c("red","blue")[as.numeric(y_grid)],
+     pch = 20,
+     cex = 0.2)
+
+points(x, col = y + 3, pch = 19)
+
+points(x[svm_fit$index,], pch, cex = 2)
+
+beta <- drop(t(svm_fit$coefs)%*%x[svm_fit$index,])
+beta
+
+b0 <- svm_fit$rho
+
+abline(b0 / beta[2], -beta[1] / beta[2])
+abline((b0 - 1) / beta[2], -beta[1] / beta[2], lty = 2)
+abline((b0 + 1) / beta[2], -beta[1] / beta[2], lty = 2)
+
+
+
+
+# Predict
+predict(svm_fit)
+
+1-class_err(df$y, svm_fit$fitted)
+df$y <- ifelse(df$y == -1, 0, 1)
+svm_fit$fitted <- ifelse(svm_fit$fitted == -1, 0, 1)
+
+tb <- table(svm_fit$fitted, df$y)
+
+confusionMatrix(tb, positive = "1")
+
+
+
+
+
+
+
+
+
+
