@@ -1,0 +1,300 @@
+
+## ANN
+
+url <- "http://archive.ics.uci.edu/ml/machine-learning-databases//haberman/haberman.data"
+
+df <- read_csv(file = url, 
+    col_names = c("Age", "Operation_Year", "Number_Pos_Nodes", "Survival"))
+
+summary(df)
+
+df$Survival <- ifelse(df$Survival == 2, 0, 1)
+
+df$Survival <- factor(df$Survival)
+
+as_tibble(df)
+ggpairs(df)
+
+table(df$Survival)
+
+table(df$Survival) / length(df$Survival)
+freq(df)
+
+
+scale01 <- function(x) {
+    (x - min(x))/(max(x) - min(x))
+}
+
+
+df <- df %>% mutate(Age = scale01(Age),
+                    Operation_Year = scale01(Operation_Year),
+                    Number_Pos_Nodes = scale01(Number_Pos_Nodes))
+
+
+
+train_indeks <- createDataPartition(df$Survival, 
+                                  p = .7, 
+                                  list = FALSE, 
+                                  times = 1)
+
+train <- df[train_indeks,]
+test  <- df[-train_indeks,]
+
+ysa_train_x <- train %>% dplyr::select(-Survival)
+ysa_train_y <- train$Survival
+
+ysa_test_x <- test %>% dplyr::select(-Survival)
+ysa_test_y <- test$Survival
+
+levels(train$Survival) <- make.names(levels(factor(train$Survival)))
+ysa_train_y <- train$Survival
+
+
+
+# Model
+set.seed(800)
+nnet_fit <- nnet(Survival ~., df, size = 3, decay = 0.1)
+
+# Predict
+head(predict(nnet_fit, ysa_train_x))
+head(predict(nnet_fit, ysa_train_x, type = "class"))
+
+pred <- predict(nnet_fit, ysa_test_x, type = "class")
+pred 
+
+confusionMatrix(factor(pred), ysa_test_y, positive = "1")
+
+
+# Model Tuning
+ctrl <- trainControl(method="cv",
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE)
+
+
+nnetGrid <- expand.grid(size = 1:10,
+                         decay = c(0, 0.1, 1, 2))
+
+maxSize <- max(nnetGrid$size)
+
+numWts <- 1*(maxSize * (length(ysa_train_x) + 1) + maxSize + 1)
+
+
+nnet_tune <- train(
+  ysa_train_x, ysa_train_y,
+  method = "nnet",
+  metric = "ROC",
+  tuneGrid = nnetGrid,
+  trace = FALSE, 
+  maxit = 2000,
+  MaxNWts = numWts,
+  trControl = ctrl
+  
+)
+plot(nnet_tune)
+pred <- predict(nnet_tune, ysa_test_x)
+pred <- ifelse(pred == "X1", 1, 0)
+
+
+
+confusionMatrix(factor(pred), ysa_test_y, positive = "1")
+
+
+
+## CART
+
+
+library(ISLR)
+data(Carseats)
+df <- Carseats
+str(df)
+summary(df)
+hist(df$Sales)
+df$Sales <- as.factor(ifelse(df$Sales <= 8, "Low", "High"))
+
+
+set.seed(123)
+train_indeks <- createDataPartition(df$Sales, 
+                                  p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+
+
+train <- df[train_indeks,]
+test  <- df[-train_indeks,]
+
+
+train_x <- train %>% dplyr::select(-Sales)
+train_y <- train$Sales
+test_x <- test %>% dplyr::select(-Sales)
+test_y <- test$Sales
+
+# Model
+seat_tree <- tree(Sales~., data = train)
+summary(seat_tree)$used
+
+# Visualization of the Tree
+plot(seat_tree)
+text(seat_tree, pretty = 0)
+
+
+# modeling with rpart
+seat_rpart <- rpart(Sales ~ ., data = train, method = "class")
+
+
+plotcp(seat_rpart)
+
+min_cp <- seat_rpart$cptable[which.min(seat_rpart$cptable[,"xerror"]), "CP"]
+
+seat_rpart_prune <- prune(seat_rpart, cp = min_cp)
+
+prp(seat_rpart_prune, type = 1)
+rpart.plot(seat_rpart_prune)
+
+# Predict
+predict(seat_tree, train_x, type = "class")
+
+predict(seat_tree, train_x, type = "vector")
+
+tb <- table(predict(seat_tree, train_x, type = "class"), train_y)
+
+confusionMatrix(tb, positive = "High")
+
+
+# Model Tuning
+seat_tree <- tree(Sales ~ . , data = train)
+
+set.seed(12312153)
+seat_tree_cv <- cv.tree(seat_tree, FUN = prune.misclass, K = 10)
+min_tree <- which.min(seat_tree_cv$dev)
+
+# Visual Analysis
+par(mfrow = c(1,2))
+plot(seat_tree_cv)
+plot(seat_tree_cv$size, 
+     seat_tree_cv$dev / nrow(train), 
+     type = "b",
+     xlab = "Agac Boyutu/Dugum Sayisi", ylab = "CV Yanlis Siniflandirma Orani")
+
+
+# Tree Trimming According to These Results
+seat_tree_prune <- prune.misclass(seat_tree, best = 9)
+summary(seat_tree_prune)
+
+plot(seat_tree_prune)
+text(seat_tree_prune, pretty = 0)
+
+# Comparison of Results
+tb <- table(predict(seat_tree_prune, test_x, type = "class"), test_y)
+confusionMatrix(tb, positive = "High")
+
+
+
+
+## Model Tuning with Caret
+#train control
+set.seed(123)
+ctrl <- trainControl(method="cv",
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE)
+
+
+cart_tune <- train(
+  x = train_x,
+  y = train_y,
+  method = "rpart",
+  tuneLength = 50,
+  metric = "ROC",
+  trControl = ctrl)
+
+plot(cart_tune)
+
+tb <- table(predict(cart_tune, test_x), test_y)
+confusionMatrix(tb, positive = "High")
+
+
+## RF
+library(ISLR)
+
+data(Carseats)
+
+df <- Carseats
+
+
+df$Sales <- as.factor(ifelse(df$Sales > 8, "High", "Low"))
+set.seed(123)
+train_indeks <- createDataPartition(df$Sales, 
+                                  p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+
+train <- df[train_indeks,]
+test  <- df[-train_indeks,]
+
+
+train_x <- train %>% dplyr::select(-Sales)
+train_y <- train$Sales
+test_x <- test %>% dplyr::select(-Sales)
+test_y <- test$Sales
+
+
+#tek bir veri seti
+training <- data.frame(train_x, Sales = train_y)
+```
+
+
+## Model
+```{r}
+
+rf_fit <- randomForest(train_x, train_y, importance = TRUE)
+
+importance(rf_fit)
+
+varImpPlot(rf_fit)
+
+
+
+# Predict
+predict(rf_fit, test_x)
+
+confusionMatrix(predict(rf_fit, test_x), test_y, positive = "High")
+
+
+# Model Tuning
+#RANDOM SEARCH
+control <- trainControl(method='repeatedcv', 
+                        number = 10,
+                        search = 'random')
+
+#tunelenght ile 15 tane mtry degeri rastgele uretilecek 
+set.seed(1)
+rf_random <- train(Sales ~ .,
+                   data = train,
+                   method = 'rf',
+                   metric = 'Accuracy',
+                   tuneLength  = 15, 
+                   trControl = control)
+
+plot(rf_random)
+
+
+#GRID SEARCH
+control <- trainControl(method='cv', 
+                        number=10, 
+                        search='grid')
+ 
+tunegrid <- expand.grid(mtry = (1:10)) 
+
+rf_gridsearch <- train(Sales ~ ., 
+                       data = train,
+                       method = 'rf',
+                       metric = 'Accuracy',
+                       tuneGrid = tunegrid)
+
+plot(rf_gridsearch)
+
+confusionMatrix(predict(rf_gridsearch, test_x), test_y, positive = "High")
+
+
+
+
+
